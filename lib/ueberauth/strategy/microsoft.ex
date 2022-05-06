@@ -38,7 +38,9 @@ defmodule Ueberauth.Strategy.Microsoft do
         set_errors!(conn, [error(err, desc)])
 
       _token ->
-        fetch_user(conn, client)
+        conn
+        |> fetch_user(client)
+        |> fetch_roles(client)
     end
   rescue
     err in [Error] ->
@@ -55,6 +57,7 @@ defmodule Ueberauth.Strategy.Microsoft do
     conn
     |> put_private(:ms_token, nil)
     |> put_private(:ms_user, nil)
+    |> put_private(:ms_roles, nil)
   end
 
   def uid(conn) do
@@ -96,7 +99,8 @@ defmodule Ueberauth.Strategy.Microsoft do
     %Extra{
       raw_info: %{
         token: conn.private.ms_token,
-        user: conn.private.ms_user
+        user: conn.private.ms_user,
+        roles: conn.private.ms_roles
       }
     }
   end
@@ -111,6 +115,30 @@ defmodule Ueberauth.Strategy.Microsoft do
 
       {:ok, %Response{status_code: status, body: response}} when status in 200..299 ->
         put_private(conn, :ms_user, response)
+
+      {:error, %Response{body: %{"error" => %{"code" => code, "message" => reason}}}} ->
+        set_errors!(conn, [error(code, reason)])
+
+      {:error, %Error{reason: reason}} ->
+        set_errors!(conn, [error("OAuth2", reason)])
+    end
+  end
+
+  defp fetch_roles(conn, client) do
+    %{"id" => user_id} = conn.private.ms_user
+
+    application_id =
+      Application.get_env(:ueberauth, Ueberauth.Strategy.Microsoft.OAuth)[:application_id]
+
+    path =
+      "https://graph.microsoft.com/v1.0/users/#{user_id}/appRoleAssignments?$filter=resourceId%20eq%20#{application_id}"
+
+    case OAuth2.Client.get(client, path) do
+      {:ok, %Response{status_code: 401}} ->
+        set_errors!(conn, [error("token", "unauthorized")])
+
+      {:ok, %Response{status_code: status, body: response}} when status in 200..299 ->
+        put_private(conn, :ms_roles, response)
 
       {:error, %Response{body: %{"error" => %{"code" => code, "message" => reason}}}} ->
         set_errors!(conn, [error(code, reason)])
