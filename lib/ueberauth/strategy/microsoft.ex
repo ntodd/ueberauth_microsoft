@@ -42,6 +42,7 @@ defmodule Ueberauth.Strategy.Microsoft do
         conn
         |> fetch_user(client)
         |> fetch_roles(client)
+        |> fetch_profile_photo(client)
     end
   rescue
     err in [Error] ->
@@ -59,6 +60,7 @@ defmodule Ueberauth.Strategy.Microsoft do
     |> put_private(:ms_token, nil)
     |> put_private(:ms_user, nil)
     |> put_private(:ms_roles, nil)
+    |> put_private(:ms_profile_photo, nil)
   end
 
   def uid(conn) do
@@ -101,7 +103,9 @@ defmodule Ueberauth.Strategy.Microsoft do
       raw_info: %{
         token: conn.private.ms_token,
         user: conn.private.ms_user,
-        roles: conn.private.ms_roles
+        roles: conn.private.ms_roles,
+        profile_photo: conn.private.ms_profile_photo,
+        profile_photo_metadata: conn.private.ms_profile_photo_metadata
       }
     }
   end
@@ -109,20 +113,7 @@ defmodule Ueberauth.Strategy.Microsoft do
   defp fetch_user(conn, client) do
     conn = put_private(conn, :ms_token, client.token)
     path = "https://graph.microsoft.com/v1.0/me/"
-
-    case OAuth2.Client.get(client, path) do
-      {:ok, %Response{status_code: 401}} ->
-        set_errors!(conn, [error("token", "unauthorized")])
-
-      {:ok, %Response{status_code: status, body: response}} when status in 200..299 ->
-        put_private(conn, :ms_user, response)
-
-      {:error, %Response{body: %{"error" => %{"code" => code, "message" => reason}}}} ->
-        set_errors!(conn, [error(code, reason)])
-
-      {:error, %Error{reason: reason}} ->
-        set_errors!(conn, [error("OAuth2", reason)])
-    end
+    fetch_and_put_to_conn(conn, client, path, :ms_user)
   end
 
   defp fetch_roles(conn, client) do
@@ -134,12 +125,35 @@ defmodule Ueberauth.Strategy.Microsoft do
     path =
       "https://graph.microsoft.com/v1.0/users/#{user_id}/appRoleAssignments?$filter=resourceId%20eq%20#{application_id}"
 
+    fetch_and_put_to_conn(conn, client, path, :ms_roles)
+  end
+
+  defp fetch_profile_photo(conn, client) do
+    conn
+    |> fetch_and_put_to_conn(
+      client,
+      "https://graph.microsoft.com/v1.0/me/photo/$value",
+      :ms_profile_photo
+    )
+    |> fetch_and_put_to_conn(
+      client,
+      "https://graph.microsoft.com/v1.0/me/photo/",
+      :ms_profile_photo_metadata
+    )
+  end
+
+  defp fetch_and_put_to_conn(conn, client, path, param_name) do
     case OAuth2.Client.get(client, path) do
       {:ok, %Response{status_code: 401}} ->
         set_errors!(conn, [error("token", "unauthorized")])
 
       {:ok, %Response{status_code: status, body: response}} when status in 200..299 ->
-        put_private(conn, :ms_roles, response)
+        put_private(conn, param_name, response)
+
+      {:error, %Response{body: %{"error" => %{"code" => "ImageNotFound"}}}} ->
+        # Special case for Microsoft's profile photo. If no photo is found,
+        # it's not actually an error, just return nil.
+        put_private(conn, param_name, nil)
 
       {:error, %Response{body: %{"error" => %{"code" => code, "message" => reason}}}} ->
         set_errors!(conn, [error(code, reason)])
