@@ -116,15 +116,18 @@ defmodule Ueberauth.Strategy.Microsoft do
   end
 
   defp fetch_roles(conn, client) do
-    %{"id" => user_id} = conn.private.ms_user
+    case Application.get_env(:ueberauth, Ueberauth.Strategy.Microsoft.OAuth)[:application_id] do
+      nil ->
+        conn
 
-    application_id =
-      Application.get_env(:ueberauth, Ueberauth.Strategy.Microsoft.OAuth)[:application_id]
+      application_id ->
+        %{"id" => user_id} = conn.private.ms_user
 
-    path =
-      "https://graph.microsoft.com/v1.0/users/#{user_id}/appRoleAssignments?$filter=resourceId%20eq%20#{application_id}"
+        path =
+          "https://graph.microsoft.com/v1.0/users/#{user_id}/appRoleAssignments?$filter=resourceId%20eq%20#{application_id}"
 
-    fetch_and_put_to_conn(conn, client, path, :ms_roles)
+        fetch_and_put_to_conn(conn, client, path, :ms_roles)
+    end
   end
 
   defp fetch_profile_photo(conn, client) do
