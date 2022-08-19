@@ -50,7 +50,13 @@ defmodule Ueberauth.Strategy.Microsoft.OAuth do
       site: "https://graph.microsoft.com",
       authorize_url: "https://login.microsoftonline.com/#{tenant_id}/oauth2/v2.0/authorize",
       token_url: "https://login.microsoftonline.com/#{tenant_id}/oauth2/v2.0/token",
-      request_opts: [ssl_options: [versions: [:"tlsv1.2"]]]
+      request_opts: [
+        ssl_options: [
+          versions: [:"tlsv1.2"],
+          verify: :verify_peer,
+          cacertfile: :certifi.cacertfile()
+        ]
+      ]
     ]
   end
 end
